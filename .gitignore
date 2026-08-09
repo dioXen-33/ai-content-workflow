@@ -1,0 +1,11 @@
+.venv/
+data/
+.env
+__pycache__/
+*.pyc
+
+# Medias de test deposes a la racine : jamais du code, et ils alourdissent
+# le depot pour rien.
+/*.mp4
+/*.png
+/*.jpg

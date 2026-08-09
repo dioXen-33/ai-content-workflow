@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workflow IA — Scraping → Nano Banana Pro → Kling 3.0</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">▶</span>
+    <div>
+      <h1>Workflow IA</h1>
+      <p class="sub">Scraping → Nano Banana Pro → Kling 3.0 Motion Control</p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="dry-badge" class="badge badge-warn hidden">DRY RUN</span>
+    <span id="budget-chip" class="chip hidden"></span>
+    <button id="btn-diagnostics" class="btn btn-ghost">Diagnostic</button>
+    <button id="btn-settings" class="btn btn-ghost">Paramètres</button>
+    <button id="btn-home" class="btn btn-ghost">Mes jobs</button>
+  </div>
+</header>
+
+<div id="health-banner" class="banner hidden"></div>
+
+<main>
+
+  <!-- ================= VUE : LISTE DES JOBS ================= -->
+  <section id="view-jobs" class="view">
+    <div class="grid-2">
+      <div class="card">
+        <h2>Nouveau job</h2>
+
+        <label class="field">
+          <span>Nom du job</span>
+          <input id="job-name" type="text">
+        </label>
+
+        <label class="field">
+          <span>Comptes Instagram / TikTok · tableaux Pinterest</span>
+          <textarea id="job-accounts" rows="7"></textarea>
+          <small>Un par ligne. Préfixes <code>instagram:</code> / <code>tiktok:</code>,
+          URL de profil, ou pseudo seul pour chercher sur les deux plateformes.<br>
+          Pinterest : colle l'URL d'un <b>tableau</b>
+          (<code>pinterest.com/utilisateur/tableau</code>), d'un <b>pin</b> ou un lien
+          <code>pin.it</code>. Un profil Pinterest nu n'est pas exploitable.</small>
+        </label>
+
+        <h3>Scraping</h3>
+        <div class="grid-3">
+          <label class="field">
+            <span>Vidéos max / compte</span>
+            <input id="p-max" type="number" min="1" max="500">
+          </label>
+          <label class="field">
+            <span>Vues minimum</span>
+            <input id="p-views" type="number" min="0">
+          </label>
+          <label class="field">
+            <span>Publiées après</span>
+            <input id="p-after" type="date">
+          </label>
+          <label class="field">
+            <span>Durée min (s)</span>
+            <input id="p-dmin" type="number" min="0" step="0.5">
+          </label>
+          <label class="field">
+            <span>Durée max (s)</span>
+            <input id="p-dmax" type="number" min="1" step="0.5">
+          </label>
+        </div>
+        <button id="btn-create" class="btn btn-primary btn-wide">Créer et scraper</button>
+        <button id="btn-create-upload" class="btn btn-ghost btn-wide">Créer sans scraper — j'importe mes vidéos</button>
+        <small>Sans scraping, les comptes et les filtres ci-dessus sont ignorés :
+        tu déposes tes propres fichiers à l'étape suivante.</small>
+      </div>
+
+      <div class="card">
+        <h2>Jobs existants</h2>
+        <div id="jobs-list" class="jobs-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= VUE : PARAMÈTRES ================= -->
+  <section id="view-settings" class="view hidden">
+    <div class="grid-2">
+
+      <div class="card">
+        <h2>Image de référence par défaut</h2>
+        <input id="set-ref-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+        <button id="btn-set-upload-ref" class="btn btn-ghost btn-wide">Téléverser une image</button>
+        <div id="set-ref-list" class="ref-list"></div>
+        <small>PNG / JPG / WebP · 10 Mo max · plus grand côté &gt; 300 px</small>
+
+        <h3>Prompt Nano Banana Pro par défaut</h3>
+        <textarea id="set-prompt" rows="8"></textarea>
+        <small><b>Ordre des images :</b> la <b>première</b> est l'image de référence,
+        la <b>seconde</b> est la frame de la vidéo scrapée.</small>
+
+        <div class="grid-2">
+          <label class="field">
+            <span>Ratio</span>
+            <select id="set-ratio">
+              <option value="9:16">9:16</option>
+              <option value="16:9">16:9</option>
+              <option value="1:1">1:1</option>
+              <option value="3:4">3:4</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Résolution</span>
+            <select id="set-size">
+              <option value="1K">1K — 0,134 $</option>
+              <option value="2K">2K — 0,134 $</option>
+              <option value="4K">4K — 0,24 $</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Kling 3.0 Motion Control</h2>
+        <div class="grid-2">
+          <label class="field">
+            <span>Durée maximale (s)</span>
+            <input id="set-maxdur" type="number" min="3" max="30" step="1">
+          </label>
+          <label class="field">
+            <span>Mode</span>
+            <select id="set-mode">
+              <option value="pro">Pro — 0,1134 $/s</option>
+              <option value="std">Standard — 0,07 $/s</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Audio d'origine</span>
+          <select id="set-audio">
+            <option value="true">Conserver</option>
+            <option value="false">Retirer</option>
+          </select>
+        </label>
+
+        <h3>Navigateur de scraping</h3>
+        <div class="notice">
+          Profil de navigateur <b>totalement isolé</b> : aucun cookie ni compte de
+          ton navigateur habituel n'y transite. Connectes-y un compte Instagram
+          dédié au scraping — jamais ton compte personnel, il peut être restreint.
+        </div>
+        <div id="browser-state" class="help">—</div>
+        <div class="toolbar">
+          <button id="btn-browser-launch" class="btn btn-ghost btn-sm">Ouvrir le navigateur</button>
+          <button id="btn-browser-capture" class="btn btn-primary btn-sm">Capturer la session</button>
+          <button id="btn-browser-close" class="btn btn-ghost btn-sm">Fermer</button>
+        </div>
+
+        <h3>Scraping par défaut</h3>
+        <div class="grid-2">
+          <label class="field">
+            <span>Vidéos max / compte</span>
+            <input id="set-max" type="number" min="1" max="500">
+          </label>
+          <label class="field">
+            <span>Vues minimum</span>
+            <input id="set-views" type="number" min="0">
+          </label>
+          <label class="field">
+            <span>Durée min (s)</span>
+            <input id="set-dmin" type="number" min="0" step="0.5">
+          </label>
+          <label class="field">
+            <span>Durée max (s)</span>
+            <input id="set-dmax" type="number" min="1" step="0.5">
+          </label>
+        </div>
+        <h3>Nano Banana Pro</h3>
+        <label class="check">
+          <input id="set-batch" type="checkbox">
+          <span>Mode batch par défaut — moitié prix, traitement asynchrone</span>
+        </label>
+
+        <h3>Budget</h3>
+        <label class="field">
+          <span>Plafond par job (USD)</span>
+          <input id="set-budget" type="number" min="1" step="1">
+        </label>
+        <small>Chaque nouveau job hérite de ce plafond. Au-delà, la génération se
+        met en pause automatiquement.</small>
+
+        <button id="btn-save-settings" class="btn btn-primary btn-wide">Enregistrer</button>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= VUE : JOB ================= -->
+  <section id="view-job" class="view hidden">
+
+    <div class="job-header">
+      <div>
+        <h2 id="job-title">—</h2>
+        <p class="sub" id="job-subtitle">—</p>
+      </div>
+      <div class="job-actions">
+        <span id="job-status" class="badge">—</span>
+        <button id="btn-pause" class="btn btn-ghost hidden">Mettre en pause</button>
+        <button id="btn-resume" class="btn btn-primary hidden">Reprendre</button>
+        <button id="btn-retry" class="btn btn-ghost hidden">Rejouer les échecs</button>
+        <button id="btn-delete" class="btn btn-danger-ghost">Supprimer</button>
+      </div>
+    </div>
+
+    <nav class="steps">
+      <button class="step" data-step="1"><b>1</b> Scraping</button>
+      <button class="step" data-step="2"><b>2</b> Validation</button>
+      <button class="step" data-step="3"><b>3</b> Génération</button>
+      <button class="step" data-step="4"><b>4</b> Résultats</button>
+    </nav>
+
+    <!-- Étape 1 -->
+    <div class="step-panel" data-panel="1">
+      <div class="grid-2">
+        <div class="card">
+          <h3>Scraping</h3>
+          <p id="scrape-info" class="muted">—</p>
+          <button id="btn-rescrape" class="btn btn-primary">Relancer le scraping</button>
+          <p id="scrape-none" class="muted hidden">Aucun compte associé à ce job :
+          il fonctionne uniquement avec les vidéos que tu importes.</p>
+        </div>
+
+        <div class="card">
+          <h3>Importer des vidéos</h3>
+          <div class="notice">
+            Tes propres fichiers, sans passer par le scraping. Ils rejoignent la
+            même file que les vidéos scrapées : frame, Nano Banana Pro, puis Kling.
+          </div>
+          <input id="upload-files" type="file" accept="video/*" multiple hidden>
+          <div id="dropzone" class="dropzone" role="button" tabindex="0">
+            <b>Glisse tes vidéos ici</b>
+            <span>ou clique pour parcourir</span>
+            <span>mp4, mov, m4v, webm, mkv, avi · 500 Mo max par fichier</span>
+          </div>
+          <div id="upload-progress" class="progress hidden"><div></div></div>
+          <div id="upload-report" class="help hidden"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Étape 2 -->
+    <div class="step-panel hidden" data-panel="2">
+      <div class="card">
+        <div class="row-between">
+          <h3>Validation</h3>
+          <div class="toolbar">
+            <input id="filter-text" type="search" placeholder="Filtrer">
+            <select id="filter-platform">
+              <option value="">Toutes plateformes</option>
+              <option value="instagram">Instagram</option>
+              <option value="tiktok">TikTok</option>
+              <option value="pinterest">Pinterest</option>
+              <option value="upload">Importées</option>
+            </select>
+            <button id="btn-all" class="btn btn-ghost btn-sm">Tout cocher</button>
+            <button id="btn-none" class="btn btn-ghost btn-sm">Tout décocher</button>
+          </div>
+        </div>
+        <div id="review-grid" class="video-grid"></div>
+        <div class="row-between sticky-footer">
+          <span id="selection-count" class="muted">0 sélectionnée(s)</span>
+          <button id="btn-validate" class="btn btn-primary">Valider la sélection</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Étape 3 -->
+    <div class="step-panel hidden" data-panel="3">
+      <div class="grid-2">
+        <div class="card">
+          <div class="row-between">
+            <h3>Image de référence</h3>
+            <button id="btn-upload-ref" class="btn btn-ghost btn-sm">Téléverser</button>
+          </div>
+          <input id="ref-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+          <div id="ref-list" class="ref-list"></div>
+
+          <h3>Prompt Nano Banana Pro</h3>
+          <textarea id="gen-prompt" rows="6"></textarea>
+
+          <div class="grid-2">
+            <label class="field">
+              <span>Ratio</span>
+              <select id="gen-ratio">
+                <option value="9:16">9:16</option>
+                <option value="16:9">16:9</option>
+                <option value="1:1">1:1</option>
+                <option value="3:4">3:4</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Résolution</span>
+              <select id="gen-size">
+                <option value="1K">1K</option>
+                <option value="2K">2K</option>
+                <option value="4K">4K</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Kling 3.0 Motion Control</h3>
+
+          <div class="notice">
+            La vidéo générée fait la durée de la vidéo d'origine. Le champ
+            ci-dessous est un plafond : au-delà, la source est tronquée.
+          </div>
+
+          <div class="grid-2">
+            <label class="field">
+              <span>Durée maximale (s)</span>
+              <input id="k-maxdur" type="number" min="3" max="30" step="1">
+            </label>
+            <label class="field">
+              <span>Mode</span>
+              <select id="k-mode">
+                <option value="pro">Pro — 0,1134 $/s</option>
+                <option value="std">Standard — 0,07 $/s</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Audio d'origine</span>
+            <select id="k-audio">
+              <option value="true">Conserver</option>
+              <option value="false">Retirer</option>
+            </select>
+          </label>
+
+          <h3>Nano Banana Pro</h3>
+          <label class="check">
+            <input id="gen-batch" type="checkbox">
+            <span><b>Mode batch — 0,067 $ au lieu de 0,134 $ par image.</b>
+            Traitement asynchrone chez Google, cible 24 h (souvent bien moins).
+            Kling ne démarre qu'une fois toutes les images récupérées.</span>
+          </label>
+
+          <div id="estimate-box" class="estimate">—</div>
+          <button id="btn-run" class="btn btn-primary btn-wide">Lancer la génération</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row-between">
+          <h3>Progression</h3>
+          <span id="progress-summary" class="muted"></span>
+        </div>
+        <div id="progress-bar" class="progress"><div></div></div>
+        <div id="run-list" class="run-list"></div>
+        <h3>Journal</h3>
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+
+    <!-- Étape 4 -->
+    <div class="step-panel hidden" data-panel="4">
+      <div class="card">
+        <div class="row-between">
+          <h3>Résultats</h3>
+          <button id="btn-download-all" class="btn btn-primary">Télécharger tout (.zip)</button>
+        </div>
+        <div id="results-grid" class="video-grid"></div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="row-between">
+      <h2 id="modal-title">Diagnostic</h2>
+      <button id="modal-close" class="btn btn-ghost btn-sm">Fermer</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

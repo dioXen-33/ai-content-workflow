@@ -1,0 +1,15 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.12
+pydantic>=2.9
+pydantic-settings>=2.6
+httpx[http2]>=0.27
+tenacity>=9.0
+PyJWT>=2.9
+google-genai>=1.0
+Pillow>=11.0
+yt-dlp>=2026.7.0
+# Validation TLS via le magasin de certificats du systeme. Indispensable
+# derriere un antivirus ou un proxy qui inspecte le HTTPS : sans lui, tout le
+# trafic echoue en CERTIFICATE_VERIFY_FAILED. Voir app/__init__.py.
+truststore>=0.10
