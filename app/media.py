@@ -257,6 +257,66 @@ async def extract_first_frame(video_path: Path, out_dir: Path) -> tuple[Path, fl
 
 
 # ---------------------------------------------------------------------------
+# Previsualisation navigateur
+# ---------------------------------------------------------------------------
+
+# Codecs que tous les navigateurs savent decoder en logiciel.
+#
+# HEVC en est volontairement absent : Instagram et TikTok servent beaucoup de
+# videos en H.265, et une machine sans extension HEVC ni GPU (Windows Server,
+# session RDP) ne rend alors aucune image -- le son passe, la video reste figee.
+BROWSER_SAFE_CODECS = {"h264", "vp8", "vp9", "av1"}
+
+
+async def video_codec(path: Path) -> str:
+    """Nom du codec video, en minuscules. Chaine vide si indeterminable."""
+    code, out, _ = await _run(
+        FFPROBE, "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(path),
+    )
+    if code != 0:
+        return ""
+    return out.decode("utf-8", "replace").strip().lower()
+
+
+async def needs_browser_transcode(path: Path) -> bool:
+    codec = await video_codec(path)
+    # Un codec indeterminable est traite comme lisible : mieux vaut tenter la
+    # lecture directe que reencoder inutilement.
+    return bool(codec) and codec not in BROWSER_SAFE_CODECS
+
+
+async def transcode_for_browser(src: Path, dest: Path, max_height: int = 720) -> Path:
+    """Reencode en H.264 pour la previsualisation.
+
+    Definition volontairement reduite : cette copie ne sert qu'a regarder la
+    video dans l'interface, jamais a la generation. Kling continue de recevoir
+    la source d'origine, intacte.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".part.mp4")
+
+    code, _, err = await _run(
+        FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+        "-vf", f"scale=-2:'min({max_height},ih)'",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+        "-profile:v", "main", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart", str(tmp),
+        capture_stderr=True,
+    )
+    if code != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Conversion pour previsualisation echouee : "
+            f"{err.decode('utf-8', 'replace')[-300:]}"
+        )
+
+    tmp.replace(dest)
+    return dest
+
+
+# ---------------------------------------------------------------------------
 # Preparation de la source pour Kling
 # ---------------------------------------------------------------------------
 

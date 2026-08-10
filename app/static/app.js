@@ -612,7 +612,7 @@ function renderReview() {
     // Pas d'`autoplay` ici : ce gabarit ne sert qu'aux cartes dont le nœud n'a
     // pas pu être réutilisé, et rien ne doit démarrer sans clic de l'utilisateur.
     const visual = state.previewing.has(v.id)
-      ? `<video class="thumb" src="/api/videos/${v.id}/source" controls
+      ? `<video class="thumb" src="/api/videos/${v.id}/preview" controls
                 playsinline preload="metadata" poster="${esc(poster)}"></video>`
       : `${poster
             ? `<img class="thumb" src="${esc(poster)}" loading="lazy" alt="">`
@@ -679,7 +679,7 @@ async function openPreview(card, videoId) {
   const poster = wrap.querySelector("img")?.getAttribute("src") || "";
   const player = document.createElement("video");
   player.className = "thumb";
-  player.src = `/api/videos/${videoId}/source`;
+  player.src = `/api/videos/${videoId}/preview`;
   player.controls = true;
   player.autoplay = true;
   player.playsInline = true;

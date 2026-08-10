@@ -638,6 +638,25 @@ async def job_retry(job_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+async def _ensure_browser_preview(source: Path) -> None:
+    """Cree une copie H.264 a cote de la source si son codec n'est pas lisible.
+
+    Instagram et TikTok servent beaucoup de HEVC, qu'une machine sans extension
+    HEVC ni GPU (Windows Server, session RDP) ne rend pas : le son passe, mais
+    l'image reste figee. La generation, elle, continue d'utiliser la source
+    d'origine -- cette copie ne sert qu'a l'apercu.
+    """
+    preview = source.with_name("preview.mp4")
+    if preview.exists() and preview.stat().st_size > 0:
+        return
+    try:
+        if not await media.needs_browser_transcode(source):
+            return
+        await media.transcode_for_browser(source, preview)
+    except Exception as exc:  # noqa: BLE001 - l'apercu ne bloque jamais
+        print(f"[preview] conversion impossible pour {source.name} : {exc}", flush=True)
+
+
 @app.post("/api/videos/{video_id}/prepare")
 async def video_prepare(video_id: str) -> dict:
     """Rend la video source lisible, en la telechargeant si besoin.
@@ -654,6 +673,7 @@ async def video_prepare(video_id: str) -> dict:
 
     existing = video.get("local_path")
     if existing and Path(existing).exists() and Path(existing).stat().st_size > 0:
+        await _ensure_browser_preview(Path(existing))
         return {"ready": True, "downloaded": False}
 
     try:
@@ -666,6 +686,7 @@ async def video_prepare(video_id: str) -> dict:
     # On enregistre le chemin sans changer d'etat : la video reste « a valider »
     # tant que l'utilisateur n'a pas tranche.
     db.update_video(video_id, local_path=str(dest))
+    await _ensure_browser_preview(dest)
     return {"ready": True, "downloaded": True}
 
 
@@ -674,6 +695,16 @@ async def video_file(video_id: str, kind: str) -> FileResponse:
     video = db.get_video(video_id)
     if not video:
         raise HTTPException(404, "Video introuvable")
+
+    # `preview` : la copie H.264 si elle existe, la source d'origine sinon.
+    if kind == "preview":
+        local = video.get("local_path")
+        if local:
+            preview = Path(local).with_name("preview.mp4")
+            if preview.exists() and preview.stat().st_size > 0:
+                return FileResponse(preview)
+        kind = "source"
+
     field = {
         "frame": "frame_path",
         "edited": "edited_path",
