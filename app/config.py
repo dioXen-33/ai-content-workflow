@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     kling_tasks_path: str = "/tasks"
     kling_mode: str = "pro"
 
+    # --- Acces a l'interface --------------------------------------------------
+    # Mot de passe demande par le navigateur. Vide = aucune protection, ce qui
+    # ne convient qu'a un usage strictement local.
+    app_username: str = "admin"
+    app_password: str = ""
+
     # --- Telegram ------------------------------------------------------------
     # Livraison automatique des videos terminees. Inactive tant que l'un des
     # deux champs est vide : le pipeline se comporte alors comme avant.
@@ -158,6 +164,18 @@ class Settings(BaseSettings):
 
     def warnings(self) -> list[str]:
         warns = []
+        # Exposee sur Internet sans mot de passe : n'importe qui disposant de
+        # l'URL peut lancer des generations et consommer le credit.
+        exposed = self.public_base_url and not self.public_base_url.startswith(
+            ("http://127.0.0.1", "http://localhost")
+        )
+        if exposed and not self.app_password:
+            warns.append(
+                "APP_PASSWORD est vide alors que l'interface est exposee sur "
+                "Internet : toute personne connaissant l'URL peut lancer des "
+                "generations et consommer ton credit. Renseigne APP_PASSWORD "
+                "dans .env puis redemarre."
+            )
         if self.asset_host_mode == "local" and not self.public_base_url:
             warns.append(
                 "ASSET_HOST_MODE=local sans PUBLIC_BASE_URL : Kling ne pourra pas "

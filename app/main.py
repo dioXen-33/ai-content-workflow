@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
+import secrets
 import uuid
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -52,6 +54,50 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Workflow IA", lifespan=lifespan)
+
+
+# ---------------------------------------------------------------------------
+# Controle d'acces
+#
+# Authentification HTTP Basic, deliberement : le navigateur la gere lui-meme et
+# la rejoue sur TOUTES les requetes de meme origine. C'est indispensable ici,
+# car les vignettes, les lecteurs video et le flux temps reel (EventSource) sont
+# de simples URLs -- aucun d'eux ne peut porter un jeton applicatif.
+# ---------------------------------------------------------------------------
+
+# Route par laquelle les serveurs de Kling telechargent les videos. Elle ne peut
+# pas etre protegee par mot de passe, sinon plus aucune generation n'aboutit.
+# Sa protection tient a un jeton secret dans l'URL, verifie par `public_asset`.
+_OPEN_PREFIXES = ("/public/",)
+
+
+def _credentials_ok(header: str) -> bool:
+    scheme, _, encoded = header.partition(" ")
+    if scheme.lower() != "basic" or not encoded:
+        return False
+    try:
+        user, _, password = base64.b64decode(encoded).decode("utf-8").partition(":")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    # Comparaison a temps constant : une comparaison ordinaire laisse fuir la
+    # longueur et le prefixe du mot de passe.
+    return secrets.compare_digest(user, settings.app_username) and secrets.compare_digest(
+        password, settings.app_password
+    )
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    if not settings.app_password:
+        return await call_next(request)
+    if request.url.path.startswith(_OPEN_PREFIXES):
+        return await call_next(request)
+    if _credentials_ok(request.headers.get("authorization", "")):
+        return await call_next(request)
+    return Response(
+        status_code=401,
+        headers={"WWW-Authenticate": 'Basic realm="Workflow IA", charset="UTF-8"'},
+    )
 
 
 # ---------------------------------------------------------------------------
