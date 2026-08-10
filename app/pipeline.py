@@ -18,7 +18,7 @@ from pathlib import Path
 
 from . import budget, db, media
 from .assets import AssetHostError, as_data_uri, public_url_for
-from .clients import apify, gemini, kling, ytdlp
+from .clients import apify, gemini, kling, telegram, ytdlp
 from .config import settings
 from .events import bus
 from .models import (
@@ -389,6 +389,47 @@ async def _stage_submit_motion(job_id: str, video: dict, gen: GenerationParams) 
     bus.progress(job_id, budget=budget.summary(job_id))
 
 
+def _telegram_caption(job_id: str, video_id: str) -> str:
+    """Legende de la video livree : de quel job et de quelle source elle vient."""
+    video = db.get_video(video_id) or {}
+    bits = [f"@{video.get('account') or '?'}"]
+    if video.get("platform"):
+        bits.append(str(video["platform"]))
+    if video.get("duration_s"):
+        bits.append(f"{float(video['duration_s']):.1f} s")
+    cost = float(video.get("cost_usd") or 0)
+    if cost:
+        bits.append(f"{cost:.2f} USD")
+
+    prefix = "[DRY RUN] " if settings.dry_run else ""
+    name = (db.get_job(job_id) or {}).get("name")
+    detail = " · ".join(bits)
+    return f"{prefix}{name}\n{detail}" if name else f"{prefix}{detail}"
+
+
+async def _deliver_to_telegram(job_id: str, video_id: str, out: Path) -> None:
+    """Livre la video terminee sur Telegram.
+
+    N'echoue jamais. A ce stade la video est produite et payee : une livraison
+    ratee doit rester un incident consigne au journal, jamais une video en
+    echec ni un job interrompu.
+    """
+    if not telegram.configured():
+        return
+    try:
+        await telegram.send_video(out, caption=_telegram_caption(job_id, video_id))
+    except Exception as exc:  # noqa: BLE001 - la livraison ne casse jamais un job
+        bus.emit(
+            job_id,
+            f"Livraison Telegram echouee : {exc}. La video reste disponible "
+            f"dans la galerie.",
+            level="warn",
+            video_id=video_id,
+        )
+        return
+    bus.emit(job_id, "Video envoyee sur Telegram.", video_id=video_id)
+
+
 async def _stage_collect(job_id: str, video: dict) -> None:
     vid = video["id"]
     d = video_dir(job_id, vid)
@@ -399,6 +440,7 @@ async def _stage_collect(job_id: str, video: dict) -> None:
         out.write_bytes(Path(video["local_path"]).read_bytes())
         db.set_state(vid, VideoState.DONE, output_path=str(out))
         bus.state(job_id, vid, VideoState.DONE)
+        await _deliver_to_telegram(job_id, vid, out)
         return
 
     def _tick(status: str, waited: float) -> None:
@@ -410,6 +452,7 @@ async def _stage_collect(job_id: str, video: dict) -> None:
 
     db.set_state(vid, VideoState.DONE, output_path=str(out))
     bus.state(job_id, vid, VideoState.DONE)
+    await _deliver_to_telegram(job_id, vid, out)
 
 
 # ---------------------------------------------------------------------------

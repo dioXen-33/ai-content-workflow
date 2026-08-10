@@ -130,6 +130,38 @@ Quatre différences avec Instagram et TikTok :
   parcourir beaucoup pour trouver peu de vidéos, et le scraping prend plus de
   temps. Un tableau dédié aux vidéos est bien plus efficace.
 
+### Livraison Telegram
+
+Dès qu'une vidéo sort de Kling, elle est envoyée sur Telegram, une par une.
+Deux réglages dans `.env`, et rien d'autre :
+
+```ini
+TELEGRAM_BOT_TOKEN=...    # donné par @BotFather
+TELEGRAM_CHAT_ID=...      # donné par @userinfobot
+```
+
+Laisser vide désactive la livraison : le pipeline se comporte exactement comme
+avant.
+
+**Le destinataire doit avoir écrit au bot au moins une fois.** Telegram
+interdit à un bot d'ouvrir une conversation : tant que personne ne lui a envoyé
+`/start`, tout envoi échoue en `chat not found`, quelle que soit la
+configuration.
+
+Trois comportements à connaître :
+
+- **Une livraison ratée ne fait jamais échouer une vidéo.** À ce stade elle est
+  produite et payée : l'échec part au journal en avertissement, la vidéo reste
+  `Terminée` et disponible dans la galerie.
+- **Les envois sont sérialisés**, même quand plusieurs vidéos se terminent en
+  même temps — la Bot API limite le débit par conversation.
+- **Plafond de 50 Mo par vidéo**, imposé par Telegram aux bots. Au-delà, la
+  vidéo n'est pas envoyée mais reste téléchargeable depuis l'interface.
+
+En mode `DRY_RUN`, les vidéos factices sont envoyées elles aussi, préfixées
+`[DRY RUN]` : c'est ce qui permet de valider la chaîne de livraison sur un
+serveur sans dépenser un centime.
+
 ### Prévisualiser avant de valider
 
 Le bouton **▶** sur une vignette remplace celle-ci par un lecteur et joue la

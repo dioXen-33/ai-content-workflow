@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     kling_tasks_path: str = "/tasks"
     kling_mode: str = "pro"
 
+    # --- Telegram ------------------------------------------------------------
+    # Livraison automatique des videos terminees. Inactive tant que l'un des
+    # deux champs est vide : le pipeline se comporte alors comme avant.
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
     # --- Hebergement des fichiers -------------------------------------------
     asset_host_mode: str = "local"  # local | source
     public_base_url: str = ""
