@@ -704,6 +704,32 @@ $("#filter-platform").onchange = renderReview;
 $("#btn-all").onclick = () => { reviewables().forEach((v) => state.selection.add(v.id)); renderReview(); };
 $("#btn-none").onclick = () => { state.selection.clear(); renderReview(); };
 
+$("#btn-duplicate").onclick = async () => {
+  if (!state.selection.size) {
+    return toast("Coche au moins une vidéo à dupliquer.", "err");
+  }
+  const suggestion = `${state.job?.name || "Job"} (copie)`;
+  const name = prompt("Nom du nouveau job :", suggestion);
+  if (name === null) return;   // annulé
+
+  const btn = $("#btn-duplicate");
+  btn.disabled = true;
+  btn.textContent = "Duplication…";
+  try {
+    const r = await api(`/api/jobs/${state.jobId}/duplicate`, {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim(), video_ids: [...state.selection] }),
+    });
+    toast(`« ${r.name} » créé avec ${r.videos} vidéo(s).`, "ok");
+    await openJob(r.id);       // on bascule sur le nouveau job, en validation
+  } catch (e) {
+    toast(e.message, "err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Dupliquer la sélection";
+  }
+};
+
 $("#btn-validate").onclick = async () => {
   try {
     await api(`/api/jobs/${state.jobId}/selection`, {

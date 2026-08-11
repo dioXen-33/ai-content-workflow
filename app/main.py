@@ -6,6 +6,7 @@ import asyncio
 import base64
 import io
 import secrets
+import shutil
 import uuid
 import zipfile
 from contextlib import asynccontextmanager
@@ -549,6 +550,74 @@ async def job_selection(job_id: str, payload: dict) -> dict:
     ids = payload.get("video_ids") or []
     db.set_selection(job_id, ids)
     return {"ok": True, "selected": len(ids), "stats": db.job_stats(job_id)}
+
+
+@app.post("/api/jobs/{job_id}/duplicate")
+async def job_duplicate(job_id: str, payload: dict | None = None) -> dict:
+    """Cree un job a partir d'une selection de videos, sans repasser par le scraping.
+
+    Les fichiers deja sur disque (source et frame) sont recopies dans le nouveau
+    job : le scraping n'est pas rejoue, et la generation ne retelechargera rien.
+    C'est aussi le seul moyen de reprendre des videos importees, qui n'ont
+    aucune source a retelecharger.
+
+    Le nouveau job arrive directement en validation.
+    """
+    source_job = db.get_job(job_id)
+    if not source_job:
+        raise HTTPException(404, "Job introuvable")
+
+    payload = payload or {}
+    wanted = payload.get("video_ids")
+    if wanted is None:
+        # Champ absent : on reprend la selection enregistree en base.
+        originals = db.list_videos(job_id, selected_only=True)
+    else:
+        # Liste fournie, meme vide : elle fait foi. Une liste vide est une
+        # erreur d'appel, surement pas une demande de tout dupliquer.
+        keep = set(wanted)
+        originals = [v for v in db.list_videos(job_id) if v["id"] in keep]
+
+    if not originals:
+        raise HTTPException(400, "Aucune vidéo sélectionnée à dupliquer.")
+
+    name = (payload.get("name") or "").strip() or f"{source_job['name']} (copie)"
+    new_job_id = db.create_job(
+        name,
+        source_job["accounts"],
+        source_job["scrape"],
+        current_preferences().max_spend_usd,
+    )
+
+    copied = 0
+    for original in originals:
+        new_vid = db.upsert_video(new_job_id, original)
+        if not new_vid:
+            continue
+
+        # Recopie des artefacts deja produits. On repart en DISCOVERED : la
+        # video attend une validation, mais `_stage_download` verra le fichier
+        # en place et n'ira pas le rechercher.
+        src_dir = pipeline.video_dir(job_id, original["id"])
+        dst_dir = pipeline.video_dir(new_job_id, new_vid)
+        fields: dict = {}
+
+        source_file = src_dir / "source.mp4"
+        if source_file.exists() and source_file.stat().st_size > 0:
+            shutil.copy2(source_file, dst_dir / "source.mp4")
+            fields["local_path"] = str(dst_dir / "source.mp4")
+
+        frame_file = src_dir / "first_frame.jpg"
+        if frame_file.exists() and frame_file.stat().st_size > 0:
+            shutil.copy2(frame_file, dst_dir / "first_frame.jpg")
+            fields["frame_path"] = str(dst_dir / "first_frame.jpg")
+
+        if fields:
+            db.update_video(new_vid, **fields)
+        copied += 1
+
+    db.update_job(new_job_id, status=JobStatus.REVIEW)
+    return {"id": new_job_id, "name": name, "videos": copied}
 
 
 @app.post("/api/jobs/{job_id}/estimate")
