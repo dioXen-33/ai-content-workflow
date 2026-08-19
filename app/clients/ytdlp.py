@@ -22,7 +22,9 @@ nous-memes echouerait.
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timezone
+from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 
 import httpx
@@ -72,6 +74,51 @@ def _profile_url(platform: Platform, handle: str) -> str:
             return f"https://{handle}"
         return f"https://www.pinterest.com/{handle.strip('/')}/"
     return f"https://www.tiktok.com/@{handle}"
+
+
+_SECUID_RE = re.compile(r'"secUid":"([^"]{20,})"')
+
+
+async def _tiktok_sec_uid(handle: str) -> str | None:
+    """Recupere l'identifiant interne (`secUid`) d'un compte TikTok.
+
+    L'extracteur de profil de yt-dlp lit cet identifiant dans la page, et
+    echoue en « Unable to extract secondary user ID » quand TikTok sert une
+    version allegee -- ce qui arrive typiquement depuis une IP de datacenter.
+    On va donc le chercher nous-memes, avec les cookies de la session dediee et
+    des en-tetes de navigateur credibles, pour le passer ensuite a yt-dlp sous
+    la forme `tiktokuser:<secUid>`.
+    """
+    jar = None
+    path = browser.cookies_path()
+    if path.exists():
+        jar = MozillaCookieJar(str(path))
+        try:
+            jar.load(ignore_discard=True, ignore_expires=True)
+        except OSError:
+            jar = None
+
+    cookies = (
+        {c.name: c.value for c in jar if "tiktok" in (c.domain or "")} if jar else {}
+    )
+    headers = {
+        "User-Agent": UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+    }
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=httpx.Timeout(30.0, connect=15.0)
+        ) as client:
+            resp = await client.get(
+                f"https://www.tiktok.com/@{handle}", headers=headers, cookies=cookies
+            )
+        if resp.status_code != 200:
+            return None
+        found = _SECUID_RE.search(resp.text)
+        return found.group(1) if found else None
+    except httpx.HTTPError:
+        return None
 
 
 async def _resolve_short_link(url: str) -> str:
@@ -265,14 +312,42 @@ async def scrape_account(
     if params.posted_after:
         opts["daterange"] = None  # filtre applique manuellement plus bas
 
+    async def _extract(target: str) -> dict:
+        return await asyncio.to_thread(_extract_sync, target, opts)
+
     try:
-        info = await asyncio.to_thread(_extract_sync, url, opts)
+        info = await _extract(url)
     except Exception as exc:  # yt_dlp leve ses propres types
         message = str(exc)
-        raise PipelineError(
-            _classify(message),
-            f"yt-dlp a echoue sur @{handle} ({platform}) : {message[:300]}",
-        ) from exc
+
+        # TikTok : yt-dlp n'a pas trouve l'identifiant interne du compte dans la
+        # page. On le resout nous-memes et on relance sur `tiktokuser:<secUid>`,
+        # la forme que yt-dlp accepte directement.
+        if platform == Platform.TIKTOK and "secondary user id" in message.lower():
+            sec_uid = await _tiktok_sec_uid(handle)
+            if sec_uid:
+                print(f"[yt-dlp] @{handle} : repli sur tiktokuser:<secUid>.", flush=True)
+                try:
+                    info = await _extract(f"tiktokuser:{sec_uid}")
+                except Exception as retry_exc:
+                    raise PipelineError(
+                        _classify(str(retry_exc)),
+                        f"TikTok refuse le profil @{handle} meme avec son "
+                        f"identifiant interne : {str(retry_exc)[:200]}",
+                    ) from retry_exc
+            else:
+                raise PipelineError(
+                    FailureKind.QUOTA,
+                    f"TikTok ne renvoie pas l'identifiant du compte @{handle}. "
+                    f"C'est le symptome d'un blocage par adresse IP : les IP de "
+                    f"datacenter sont filtrees. Capture une session TikTok dans "
+                    f"le navigateur de scraping, ou bascule sur le backend Apify.",
+                ) from exc
+        else:
+            raise PipelineError(
+                _classify(message),
+                f"yt-dlp a echoue sur @{handle} ({platform}) : {message[:300]}",
+            ) from exc
 
     entries = info.get("entries")
     if entries is None:

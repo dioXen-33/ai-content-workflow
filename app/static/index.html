@@ -149,12 +149,17 @@
         <h3>Navigateur de scraping</h3>
         <div class="notice">
           Profil de navigateur <b>totalement isolé</b> : aucun cookie ni compte de
-          ton navigateur habituel n'y transite. Connectes-y un compte Instagram
-          dédié au scraping — jamais ton compte personnel, il peut être restreint.
+          ton navigateur habituel n'y transite. Connectes-y des comptes <b>dédiés
+          au scraping</b> — jamais tes comptes personnels, ils peuvent être
+          restreints.<br><br>
+          <b>Instagram</b> exige une session connectée. <b>TikTok</b> n'en a pas
+          besoin depuis une connexion résidentielle, mais devient indispensable
+          depuis un serveur : les IP de datacenter sont filtrées.
         </div>
         <div id="browser-state" class="help">—</div>
         <div class="toolbar">
-          <button id="btn-browser-launch" class="btn btn-ghost btn-sm">Ouvrir le navigateur</button>
+          <button id="btn-browser-instagram" class="btn btn-ghost btn-sm">Connexion Instagram</button>
+          <button id="btn-browser-tiktok" class="btn btn-ghost btn-sm">Connexion TikTok</button>
           <button id="btn-browser-capture" class="btn btn-primary btn-sm">Capturer la session</button>
           <button id="btn-browser-close" class="btn btn-ghost btn-sm">Fermer</button>
         </div>

@@ -113,13 +113,31 @@ async def bring_to_front() -> bool:
         return False
 
 
+async def open_tab(url: str) -> bool:
+    """Ouvre un onglet sur `url` dans le navigateur deja lance."""
+    base = f"http://127.0.0.1:{settings.browser_debug_port}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # `PUT /json/new` est l'endpoint DevTools de creation d'onglet ; les
+            # versions anciennes de Chrome n'acceptent que GET.
+            resp = await client.put(f"{base}/json/new?{url}")
+            if resp.status_code >= 400:
+                resp = await client.get(f"{base}/json/new?{url}")
+            return resp.status_code < 400
+    except httpx.HTTPError:
+        return False
+
+
 async def launch(start_url: str = "https://www.instagram.com/accounts/login/") -> dict:
     """Ouvre le navigateur isole. Renvoie l'etat de la session."""
     global _process
 
     if await _cdp_reachable():
-        # Deja ouvert : on se contente de le ramener devant, sinon l'utilisateur
-        # a l'impression qu'il ne se passe rien.
+        # Deja ouvert : on ouvre la cible demandee dans un nouvel onglet, puis on
+        # ramene la fenetre devant. Sans le nouvel onglet, cliquer « Connexion
+        # TikTok » alors que le navigateur affiche Instagram ne menerait nulle
+        # part.
+        await open_tab(start_url)
         await bring_to_front()
         state = await status()
         state["already_running"] = True
@@ -261,6 +279,36 @@ async def capture_cookies() -> dict:
     }
 
 
+def captured_sessions() -> dict[str, bool]:
+    """Sessions reellement presentes dans le fichier de cookies.
+
+    Savoir qu'« une session existe » ne suffit pas : un fichier peut contenir
+    Instagram sans TikTok. On regarde donc les cookies d'authentification de
+    chaque plateforme.
+    """
+    path = cookies_path()
+    result = {"instagram": False, "tiktok": False}
+    if not path.exists():
+        return result
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return result
+
+    for line in content.splitlines():
+        if line.startswith("#") or "	" not in line:
+            continue
+        parts = line.split("	")
+        if len(parts) < 7:
+            continue
+        domain, name = parts[0], parts[5]
+        if "instagram" in domain and name == "sessionid":
+            result["instagram"] = True
+        elif "tiktok" in domain and name in ("sessionid", "sid_tt", "sessionid_ss"):
+            result["tiktok"] = True
+    return result
+
+
 async def status() -> dict:
     """Etat courant de la session de scraping."""
     path = cookies_path()
@@ -275,6 +323,7 @@ async def status() -> dict:
             if path.exists()
             else None
         ),
+        "sessions": captured_sessions(),
     }
 
 

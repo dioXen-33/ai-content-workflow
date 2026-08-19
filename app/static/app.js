@@ -180,36 +180,55 @@ async function refreshBrowserState() {
         Installe Chrome ou Edge, ou renseigne BROWSER_EXECUTABLE dans .env.`;
       return;
     }
-    const session = s.cookies_file
-      ? `Session capturée il y a <b>${s.cookies_age_h} h</b>`
-      : `<span class="warn-text">Aucune session capturée</span>`;
+    const sess = s.sessions || {};
+    const mark = (ok) => ok
+      ? '<span style="color:var(--ok)">✓</span>'
+      : '<span class="warn-text">✗</span>';
+    const age = s.cookies_file
+      ? `capturée il y a <b>${s.cookies_age_h} h</b>`
+      : `<span class="warn-text">jamais capturée</span>`;
     el.innerHTML = `
       Backend : <b>${s.backend}</b> · yt-dlp ${s.ytdlp ? "prêt" : "absent"}<br>
-      Navigateur ${s.running ? "<b>ouvert</b>" : "fermé"} · ${session}`;
+      Navigateur ${s.running ? "<b>ouvert</b>" : "fermé"} · session ${age}<br>
+      Sessions : ${mark(sess.instagram)} Instagram &nbsp; ${mark(sess.tiktok)} TikTok`;
   } catch (e) {
     el.textContent = e.message;
   }
 }
 
-$("#btn-browser-launch").onclick = async () => {
-  const btn = $("#btn-browser-launch");
+const LOGIN_URLS = {
+  instagram: "https://www.instagram.com/accounts/login/",
+  tiktok: "https://www.tiktok.com/login",
+};
+
+async function openScrapingBrowser(platform, btn) {
+  const label = btn.textContent;
   btn.disabled = true;
   btn.textContent = "Ouverture…";
   try {
-    const r = await api("/api/browser/launch", { method: "POST", body: JSON.stringify({}) });
+    const r = await api("/api/browser/launch", {
+      method: "POST",
+      body: JSON.stringify({ url: LOGIN_URLS[platform] }),
+    });
     toast(
       r.already_running
-        ? "Navigateur déjà ouvert — ramené au premier plan (sinon, cherche-le dans la barre des tâches)."
-        : "Navigateur ouvert. Connecte le compte dédié, puis capture la session.",
+        ? "Navigateur déjà ouvert — ramené au premier plan. Ouvre l'onglet " +
+          `${platform} toi-même si besoin, puis capture la session.`
+        : `Connecte le compte ${platform} dédié, puis clique « Capturer la session ».`,
       "ok");
     refreshBrowserState();
   } catch (e) {
     toast(e.message, "err");
   } finally {
     btn.disabled = false;
-    btn.textContent = "Ouvrir le navigateur";
+    btn.textContent = label;
   }
-};
+}
+
+$("#btn-browser-instagram").onclick = (e) =>
+  openScrapingBrowser("instagram", e.currentTarget);
+$("#btn-browser-tiktok").onclick = (e) =>
+  openScrapingBrowser("tiktok", e.currentTarget);
 
 $("#btn-browser-capture").onclick = async () => {
   try {
