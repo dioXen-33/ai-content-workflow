@@ -89,6 +89,11 @@ DRYRUN_SCHEME = "dryrun://"
 # il n'y a rien a telecharger.
 UPLOAD_SCHEME = "upload://"
 
+# Video TikTok : on ne telecharge pas via yt-dlp (bloque par signature), mais en
+# rejouant la page de la video pour en extraire une URL de media fraiche. Voir
+# app/clients/tiktok_browser.download.
+TIKTOK_SCHEME = "tiktokdl://"
+
 _TEST_PATTERNS = ("testsrc2", "smptebars", "rgbtestsrc", "testsrc")
 
 

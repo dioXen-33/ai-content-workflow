@@ -30,7 +30,7 @@ from pathlib import Path
 import httpx
 
 from .. import browser
-from ..media import UA
+from ..media import UA, TIKTOK_SCHEME
 from ..models import FailureKind, Platform, PipelineError, ScrapeParams
 
 # Marqueur : indique au pipeline qu'il faut telecharger via yt-dlp et non en
@@ -236,7 +236,10 @@ def normalize(entry: dict, platform: Platform, account: str) -> dict | None:
         "account": str(who)[:60],
         "external_id": str(video_id),
         "post_url": page_url,
-        "source_url": f"{YTDLP_SCHEME}{page_url}",
+        "source_url": (
+            f"{TIKTOK_SCHEME}{page_url}" if platform == Platform.TIKTOK
+            else f"{YTDLP_SCHEME}{page_url}"
+        ),
         "caption": (entry.get("description") or entry.get("title") or "")[:2000],
         "thumbnail_url": thumbnail,
         "view_count": _int("view_count", "play_count"),
@@ -315,44 +318,58 @@ async def scrape_account(
     async def _extract(target: str) -> dict:
         return await asyncio.to_thread(_extract_sync, target, opts)
 
+    def _entries(info: dict) -> list[dict]:
+        ents = (info or {}).get("entries")
+        if ents is None:
+            ents = [info] if info and info.get("id") else []
+        return [e for e in ents if isinstance(e, dict)]
+
+    # Extraction directe. `ignoreerrors=True` fait que yt-dlp ne LEVE PAS quand
+    # il echoue a lire un profil : il logue et renvoie un resultat vide. Il faut
+    # donc traiter « leve » et « renvoie vide » de la meme facon.
     try:
-        info = await _extract(url)
+        entries = _entries(await _extract(url))
     except Exception as exc:  # yt_dlp leve ses propres types
-        message = str(exc)
-
-        # TikTok : yt-dlp n'a pas trouve l'identifiant interne du compte dans la
-        # page. On le resout nous-memes et on relance sur `tiktokuser:<secUid>`,
-        # la forme que yt-dlp accepte directement.
-        if platform == Platform.TIKTOK and "secondary user id" in message.lower():
-            sec_uid = await _tiktok_sec_uid(handle)
-            if sec_uid:
-                print(f"[yt-dlp] @{handle} : repli sur tiktokuser:<secUid>.", flush=True)
-                try:
-                    info = await _extract(f"tiktokuser:{sec_uid}")
-                except Exception as retry_exc:
-                    raise PipelineError(
-                        _classify(str(retry_exc)),
-                        f"TikTok refuse le profil @{handle} meme avec son "
-                        f"identifiant interne : {str(retry_exc)[:200]}",
-                    ) from retry_exc
-            else:
-                raise PipelineError(
-                    FailureKind.QUOTA,
-                    f"TikTok ne renvoie pas l'identifiant du compte @{handle}. "
-                    f"C'est le symptome d'un blocage par adresse IP : les IP de "
-                    f"datacenter sont filtrees. Capture une session TikTok dans "
-                    f"le navigateur de scraping, ou bascule sur le backend Apify.",
-                ) from exc
-        else:
+        if platform != Platform.TIKTOK:
             raise PipelineError(
-                _classify(message),
-                f"yt-dlp a echoue sur @{handle} ({platform}) : {message[:300]}",
+                _classify(str(exc)),
+                f"yt-dlp a echoue sur @{handle} ({platform}) : {str(exc)[:300]}",
             ) from exc
+        entries = []  # le repli secUid ci-dessous prend le relais
 
-    entries = info.get("entries")
-    if entries is None:
-        entries = [info] if info.get("id") else []
-    entries = [e for e in entries if isinstance(e, dict)]
+    # TikTok : l'extracteur de profil de yt-dlp echoue souvent a lire
+    # l'identifiant interne du compte (« Unable to extract secondary user ID »),
+    # que la requete leve ou renvoie simplement du vide. On resout cet
+    # identifiant nous-memes et on relance sur `tiktokuser:<secUid>`, la forme
+    # que yt-dlp accepte directement.
+    if platform == Platform.TIKTOK and not entries:
+        # 1. Repli secUid via yt-dlp : marche quand TikTok sert encore ses
+        #    donnees a une requete directe (typiquement une IP residentielle).
+        sec_uid = await _tiktok_sec_uid(handle)
+        if sec_uid:
+            print(f"[yt-dlp] @{handle} : repli sur tiktokuser:<secUid>.", flush=True)
+            try:
+                entries = _entries(await _extract(f"tiktokuser:{sec_uid}"))
+            except Exception:
+                entries = []  # l'API item_list a renvoye du vide : etape suivante
+
+        # 2. Recolte par navigateur : TikTok signe alors ses propres requetes,
+        #    ce qui contourne le blocage des requetes directes. C'est la seule
+        #    voie fiable depuis une IP filtree (serveur).
+        if not entries and await browser._cdp_reachable():
+            from . import tiktok_browser
+
+            print(f"[yt-dlp] @{handle} : bascule sur la recolte par navigateur.",
+                  flush=True)
+            return await tiktok_browser.harvest(handle, params)
+
+        if not entries:
+            raise PipelineError(
+                FailureKind.QUOTA,
+                f"TikTok bloque le listing de @{handle} par requete directe. "
+                f"Ouvre le navigateur de scraping (Parametres > « Connexion "
+                f"TikTok ») et relance : un vrai navigateur contourne le blocage.",
+            )
 
     if not entries:
         if platform == Platform.PINTEREST:

@@ -251,6 +251,14 @@ async def ensure_local_source(job_id: str, video: dict) -> Path:
                 await media.generate_test_video(
                     dest, duration=12.0, seed=int(seed) if seed.isdigit() else 0
                 )
+            elif source.startswith(media.TIKTOK_SCHEME):
+                # TikTok : yt-dlp ne peut plus telecharger une video isolee
+                # (bloquee par signature). On rejoue sa page pour une URL fraiche.
+                from .clients import tiktok_browser
+
+                await tiktok_browser.download(
+                    source.removeprefix(media.TIKTOK_SCHEME), dest
+                )
             elif source.startswith(ytdlp.YTDLP_SCHEME):
                 # Les URLs de media Instagram sont signees : on repasse par
                 # yt-dlp, qui rejoue la session et reconstruit une URL valide.
